@@ -1,0 +1,281 @@
+#yolo_train.py
+from ultralytics import YOLO
+import os
+import yaml
+
+class YOLOv11Trainer:
+    def __init__(self, model_name='yolo11n.pt'):
+        """
+        初始化训练器
+        Args:
+            model_name: 基础模型名称
+        """
+        self.model = YOLO(model_name)
+        
+    def prepare_dataset(self, data_yaml_path):
+        """
+        准备数据集配置
+        Args:
+            data_yaml_path: 数据集配置文件路径
+        """
+        # 示例数据配置文件结构
+        data_config = {
+            'path': './datasets/coco8',  # 数据集根目录
+            'train': 'images/train',      # 训练集图片路径
+            'val': 'images/val',          # 验证集图片路径
+            'test': 'images/test',        # 测试集图片路径（可选）
+            'names': {
+                0: 'person',
+                1: 'bicycle',
+                2: 'car',
+                # ... 其他类别
+            },
+            'nc': 80  # 类别数量
+        }
+        
+        # 保存配置文件
+        with open(data_yaml_path, 'w') as f:
+            yaml.dump(data_config, f)
+            
+        print(f"数据集配置文件已保存: {data_yaml_path}")
+        
+    def train(self, data_yaml, epochs=100, imgsz=640, batch=16):
+        """
+        训练模型
+        Args:
+            data_yaml: 数据集配置文件路径
+            epochs: 训练轮数
+            imgsz: 图像尺寸
+            batch: 批次大小
+        """
+        # 训练参数
+        train_args = {
+            'data': data_yaml,
+            'epochs': epochs,
+            'imgsz': imgsz,
+            'batch': batch,
+            'patience': 50,  # 早停耐心值
+            'save': True,
+            'save_period': 10,  # 每10轮保存一次
+            'cache': True,  # 缓存数据集加速训练
+            'device': 'cpu',  # 使用CPU，如果是GPU可改为 '0' 或 '0,1,2,3'
+            'workers': 8,  # 数据加载工作线程数
+            'project': 'runs/train',
+            'name': 'yolo11n_custom',
+            'exist_ok': True,  # 覆盖已有训练
+            'pretrained': True,
+            'optimizer': 'auto',
+            'lr0': 0.01,  # 初始学习率
+            'lrf': 0.01,  # 最终学习率因子
+            'momentum': 0.937,
+            'weight_decay': 0.0005,
+            'warmup_epochs': 3.0,
+            'warmup_momentum': 0.8,
+            'box': 7.5,  # box损失权重
+            'cls': 0.5,  # 分类损失权重
+            'dfl': 1.5,  # dfl损失权重
+            'fl_gamma': 0.0,  # focal loss gamma
+            'label_smoothing': 0.0,
+            'nbs': 64,  # 名义批次大小
+            'overlap_mask': True,
+            'scale': 0.5,
+            'dropout': 0.0,
+            'val': True,  # 训练中验证
+            'plots': True,  # 保存训练曲线图
+        }
+        
+        # 开始训练
+        results = self.model.train(**train_args)
+        
+        # 保存最佳模型路径
+        best_model_path = f"runs/train/yolo11n_custom/weights/best.pt"
+        print(f"训练完成！最佳模型保存至: {best_model_path}")
+        
+        return results
+    
+    def resume_training(self, checkpoint_path):
+        """
+        从检查点恢复训练
+        Args:
+            checkpoint_path: 检查点路径
+        """
+        print(f"从检查点恢复训练: {checkpoint_path}")
+        self.model = YOLO(checkpoint_path)
+        # 继续训练，参数与之前相同
+        self.train()
+
+def main():
+    # 初始化训练器
+    trainer = YOLOv11Trainer('yolo11n.pt')
+    
+    # 准备数据集配置（需要先准备好数据集）
+    data_yaml = 'data/custom_data.yaml'
+    
+    # 开始训练
+    trainer.train(
+        data_yaml=data_yaml,
+        epochs=100,
+        imgsz=640,
+        batch=16
+    )
+    
+    # 或者从检查点恢复训练
+    # trainer.resume_training('runs/train/yolo11n_custom/weights/last.pt')
+
+if __name__ == "__main__":
+    main()
+
+#yolo_val.py
+from ultralytics import YOLO
+import matplotlib.pyplot as plt
+import numpy as np
+
+class YOLOv11Validator:
+    def __init__(self, model_path):
+        """
+        初始化验证器
+        Args:
+            model_path: 训练好的模型路径
+        """
+        self.model = YOLO(model_path)
+        
+    def validate(self, data_yaml, split='val'):
+        """
+        验证模型性能
+        Args:
+            data_yaml: 数据集配置文件
+            split: 验证集类型（val/test）
+        """
+        # 验证参数
+        val_args = {
+            'data': data_yaml,
+            'split': split,
+            'imgsz': 640,
+            'batch': 16,
+            'conf': 0.001,
+            'iou': 0.6,
+            'device': 'cpu',
+            'plots': True,  # 生成评估图表
+            'save_json': True,  # 保存JSON格式结果
+            'save_hybrid': True,  # 保存混合标签
+            'project': 'runs/val',
+            'name': 'yolo11n_val',
+            'exist_ok': True,
+        }
+        
+        # 执行验证
+        metrics = self.model.val(**val_args)
+        
+        # 打印关键指标
+        print("\n" + "="*50)
+        print("验证结果:")
+        print("="*50)
+        print(f"mAP50-95: {metrics.box.map:.4f}")
+        print(f"mAP50: {metrics.box.map50:.4f}")
+        print(f"mAP75: {metrics.box.map75:.4f}")
+        print(f"Precision: {metrics.box.p:.4f}")
+        print(f"Recall: {metrics.box.r:.4f}")
+        
+        # 按类别显示结果
+        if hasattr(metrics.box, 'ap_class_index'):
+            print("\n按类别指标:")
+            for i, cls_idx in enumerate(metrics.box.ap_class_index):
+                cls_name = metrics.names[cls_idx]
+                ap = metrics.box.ap[i]
+                print(f"  {cls_name}: AP={ap:.4f}")
+        
+        return metrics
+    
+    def export_model(self, format='onnx'):
+        """
+        导出模型到其他格式
+        Args:
+            format: 导出格式 (onnx, torchscript, tensorrt, etc.)
+        """
+        # 支持的格式
+        supported_formats = ['onnx', 'torchscript', 'tensorrt', 
+                            'coreml', 'saved_model', 'pb', 'tflite', 
+                            'edgetpu', 'tfjs', 'paddle', 'ncnn']
+        
+        if format not in supported_formats:
+            print(f"不支持格式: {format}")
+            print(f"支持的格式: {supported_formats}")
+            return
+            
+        # 导出模型
+        export_path = self.model.export(format=format)
+        print(f"模型已导出为 {format.upper()} 格式: {export_path}")
+        return export_path
+    
+    def benchmark(self, imgsz=640):
+        """
+        模型性能基准测试
+        Args:
+            imgsz: 图像尺寸
+        """
+        # 性能基准测试
+        results = self.model.benchmark(
+            imgsz=imgsz,
+            device='cpu',  # 或 '0' 用于GPU
+            half=False,  # 是否使用半精度
+        )
+        
+        print("\n性能基准测试结果:")
+        print(f"推理时间: {results.speed['inference']:.2f} ms")
+        print(f"预处理时间: {results.speed['preprocess']:.2f} ms")
+        print(f"后处理时间: {results.speed['postprocess']:.2f} ms")
+        
+        return results
+
+def main():
+    # 初始化验证器（使用训练好的模型）
+    validator = YOLOv11Validator('runs/train/yolo11n_custom/weights/best.pt')
+    
+    # 验证模型
+    data_yaml = 'data/custom_data.yaml'
+    metrics = validator.validate(data_yaml)
+    
+    # 导出模型为ONNX格式
+    validator.export_model('onnx')
+    
+    # 运行基准测试
+    validator.benchmark()
+
+if __name__ == "__main__":
+    main()
+
+#mypredict.py
+from ultralytics import YOLO
+
+model=YOLO(r"yolo11n.pt")
+model.predict(
+    source=r"D:\HuaweiMoveData\Users\HW\Desktop\temp",#给文件夹路径可以直接预测
+    save=True,
+    show=False,
+)
+
+#mupredict_camera.py
+from ultralytics import YOLO
+
+'''
+model=YOLO(r"yolo11n-cls.pt")
+model.predict(
+    source=0,
+    save=False,
+    show=True,
+)
+'''
+
+import cv2
+
+model=YOLO(r"yolo11n.pt")
+results=model(
+    source=0,
+    stream=True,
+)
+
+for result in results:
+    plotted=result.plot()
+    cv2.imshow("yolo inference",plotted)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
